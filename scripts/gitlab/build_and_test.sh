@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 
+# Initialize modules for users not using bash as a default shell
+if test -e /usr/share/lmod/lmod/init/bash
+then
+  . /usr/share/lmod/lmod/init/bash
+fi
+
 ##############################################################################
 # Copyright (c) 2016-22, Lawrence Livermore National Security, LLC and CHAI
 # project contributors. See the COPYRIGHT file for details.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 ##############################################################################
-
 
 # set -x
 set -o errexit
@@ -24,6 +29,14 @@ job_unique_id=${CI_JOB_ID:-""}
 
 raja_version=${UPDATE_RAJA:-""}
 umpire_version=${UPDATE_UMPIRE:-""}
+
+if [[ -n ${module_list} ]]
+then
+    echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+    echo "~~~~~ Modules to load: ${module_list}"
+    echo "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+    module load ${module_list}
+fi
 
 # Dependencies
 date
