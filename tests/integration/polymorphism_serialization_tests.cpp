@@ -26,6 +26,32 @@
 #include <cstdlib>
 
 //------------------------------------------------------------------------------
+// Execute CUDA code with error checking
+//------------------------------------------------------------------------------
+inline void gpuErrorCheck(cudaError_t code, const char *file, int line, bool abort=true)
+{
+   if (code != cudaSuccess) {
+      fprintf(stderr, "[CHAI] GPU Error: %s %s %d\n", cudaGetErrorString(code), file, line);
+      if (abort) {
+         exit(code);
+      }
+   }
+}
+
+#define GPU_ERROR_CHECK(code) { gpuErrorCheck((code), __FILE__, __LINE__); }
+
+//------------------------------------------------------------------------------
+// Macro for executing code on GPU
+//------------------------------------------------------------------------------
+#define GPU_EXEC(code) do {                    \
+  forall(gpu(), 0, 1, [=] __device__ (int i) { \
+    code                                       \
+      });                                      \
+  GPU_ERROR_CHECK( cudaPeekAtLastError() );    \
+  GPU_ERROR_CHECK( cudaDeviceSynchronize() );  \
+} while (false)
+
+//------------------------------------------------------------------------------
 // Class definitions we'd like to use on both host and device
 //------------------------------------------------------------------------------
 template<size_t msize>
@@ -56,10 +82,9 @@ template<typename T>
 T*
 constructOnDevice() {
   printf("constructOnDevice sizeof(T): %d\n", sizeof(T));
-  unsigned char* memory;
-  cudaMalloc((void**) &memory, sizeof(T));
-  T* Tptr = reinterpret_cast<T*>(memory);
-  forall(gpu(), 0, 1, [=] __device__ (int i) { new(Tptr) T(); });
+  T* Tptr;
+  GPU_ERROR_CHECK(cudaMalloc((void**) &Tptr, sizeof(T)));
+  GPU_EXEC( new(Tptr) T(); );
   return Tptr;
 }
 
@@ -68,25 +93,38 @@ constructOnDevice() {
 //------------------------------------------------------------------------------
 GPU_TEST(managed_ptr, polymorphic_type_test) {
 
-  // Allocate objects on the host
+  printf("\n--------------------------------------------------------------------------------\n");
+  printf("Allocating objects on host\n");
   A<20u> ahost;
   B<20u> bhost;
   printf("Host initial object states:\n");
   ahost.print_stuff();
   bhost.print_stuff();
-  printf("\n--------------------------------------------------------------------------------\n");
 
-  // Allocate objects on the device
+  printf("\n--------------------------------------------------------------------------------\n");
+  printf("Allocate objects on the device\n");
   A<20u>* agpuPtr = constructOnDevice<A<20u>>();
   B<20u>* bgpuPtr = constructOnDevice<B<20u>>();
   printf("GPU initial object states:\n");
-  agpuPtr->print_stuff();
-  bgpuPtr->print_stuff();
+  GPU_EXEC( 
+           agpuPtr->print_stuff();
+           bgpuPtr->print_stuff();
+          );
 
-  // Alter the objects on host
+  printf("\n--------------------------------------------------------------------------------\n");
+  printf("Alter the objects on host\n");
   ahost.func(10);
   bhost.func(5);
   printf("After modification on host:\n");
   ahost.print_stuff();
   bhost.print_stuff();
+
+  printf("\n--------------------------------------------------------------------------------\n");
+  printf("Free memory.  This is the sort of thing I don't wnat to have to worry about...\n");
+  GPU_EXEC(
+           agpuPtr->~A();
+           bgpuPtr->~B();
+          );
+  cudaFree(agpuPtr);
+  cudaFree(bgpuPtr);
 }
