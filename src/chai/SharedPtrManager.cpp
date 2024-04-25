@@ -305,8 +305,8 @@ void SharedPtrManager::move(msp_pointer_record* record, ExecutionSpace space)
       std::cout << "src_pointer : " << src_pointer << std::endl;
       std::cout << "space : " << space << std::endl;
       std::cout << "prev_space : " << prev_space << std::endl;
-      std::cout << m_resource_manager.findAllocatorForPointer(dst_pointer)->getName() << std::endl;
-      std::cout << m_resource_manager.findAllocatorForPointer(src_pointer)->getName() << std::endl;
+      // std::cout << m_resource_manager.findAllocatorForPointer(dst_pointer)->getName() << std::endl;
+      // std::cout << m_resource_manager.findAllocatorForPointer(src_pointer)->getName() << std::endl;
       chai::copy(dst_pointer, src_pointer, m_resource_manager, space, prev_space);
 
     }

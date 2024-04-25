@@ -38,6 +38,19 @@ blt_add_test(
   NAME polymorphism_test
   COMMAND polymorphism_tests)
 
+blt_add_executable(
+  NAME polymorphism_serialization_tests
+  SOURCES polymorphism_serialization_tests.cpp
+  DEPENDS_ON ${chai_integration_test_depends})
+
+target_include_directories(
+  polymorphism_serialization_tests
+  PUBLIC ${PROJECT_BINARY_DIR}/include)
+
+blt_add_test(
+  NAME polymorphism_serialization_test
+  COMMAND polymorphism_serialization_tests)
+
 if (CHAI_ENABLE_MANAGED_PTR)
   blt_add_executable(
     NAME managed_ptr_tests
