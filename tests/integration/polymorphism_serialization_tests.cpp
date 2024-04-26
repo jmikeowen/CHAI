@@ -64,24 +64,32 @@ inline void gpuErrorCheck(cudaError_t code, const char *file, int line, bool abo
 // Class definitions we'd like to use on both host and device
 //------------------------------------------------------------------------------
 template<size_t size>
-class A {
+class AbstractBase {
 public:
-
-  CHAI_HOST_DEVICE A()                               { printf("A::A()\n"); this->fill(0); }
-  CHAI_HOST_DEVICE virtual ~A()                      { printf("A::~A()\n"); }
-  CHAI_HOST_DEVICE void fill(const int x)            { printf("A::fill(%d)\n", x); for (auto i = 0u; i < size; ++i) mstuff[i] = x; }
-  CHAI_HOST_DEVICE void print_stuff() const          { printf("A::print_stuff:"); for (auto i = 0u; i < size; ++i) printf(" %d", mstuff[i]); printf("\n"); }
-  CHAI_HOST_DEVICE virtual void func(int x)          { printf("A::func(%d)\n", x); for (auto i = 0u; i < size; ++i) mstuff[i] += x; }
-  CHAI_HOST_DEVICE int* stuff()                      { printf("A::stuff()\n"); return mstuff; }
-  CHAI_HOST_DEVICE const int* stuff() const          { printf("A::stuff() (const)\n"); return mstuff; }
+  CHAI_HOST_DEVICE AbstractBase()                    { printf("AbstractBase::AbstractBase()\n"); this->fill(0); }
+  CHAI_HOST_DEVICE virtual ~AbstractBase()           { printf("AbstractBase::~AbstractBase()\n"); }
+  CHAI_HOST_DEVICE void fill(const int x)            { printf("AbstractBase::fill(%d)\n", x); for (auto i = 0u; i < size; ++i) mstuff[i] = x; }
+  CHAI_HOST_DEVICE void print_stuff() const          { printf("AbstractBase::print_stuff:"); for (auto i = 0u; i < size; ++i) printf(" %d", mstuff[i]); printf("\n"); }
+  CHAI_HOST_DEVICE int* stuff()                      { printf("AbstractBase::stuff()\n"); return mstuff; }
+  CHAI_HOST_DEVICE const int* stuff() const          { printf("AbstractBase::stuff() (const)\n"); return mstuff; }
+  CHAI_HOST_DEVICE virtual void func(int x) = 0;
 protected:
   int mstuff[size];
+};  
+
+template<size_t size>
+class A: public AbstractBase<size> {
+public:
+  using AbstractBase<size>::mstuff;
+  CHAI_HOST_DEVICE A(): AbstractBase<size>()         { printf("A::A()\n"); this->fill(0); }
+  CHAI_HOST_DEVICE virtual ~A()                      { printf("A::~A()\n"); }
+  CHAI_HOST_DEVICE virtual void func(int x) override { printf("A::func(%d)\n", x); for (auto i = 0u; i < size; ++i) mstuff[i] += x; }
 };
 
 template<size_t size>
 class B: public A<size> {
 public:
-  using A<size>::mstuff;
+  using AbstractBase<size>::mstuff;
   CHAI_HOST_DEVICE B(): A<size>()                    { printf("B::B()\n"); }
   CHAI_HOST_DEVICE virtual ~B()                      { printf("B::~B()\n"); }
   CHAI_HOST_DEVICE virtual void func(int x) override { printf("B::func(%d)\n", x); for (auto i = 0u; i < size; ++i) mstuff[i] -= x; }
