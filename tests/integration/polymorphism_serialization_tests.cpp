@@ -99,7 +99,7 @@ void pack_host(const A<size>& a, Buffer& buf) {
   const auto binsize = sizeof(int) * size;
   auto* astuffptr = reinterpret_cast<const uint8_t*>(a.stuff());
   buf.allocate(binsize);
-  memcpy(&buf[0], astuffptr, binsize);
+  memcpy(buf.data(), astuffptr, binsize);
 }
 
 template<size_t size>
@@ -107,7 +107,7 @@ CHAI_DEVICE
 void pack_device(const A<size>& a, Buffer const& buf) {
   const auto binsize = sizeof(int) * size;
   assert(buf.size() == binsize);
-  memcpy(&buf[0], a.stuff(), binsize);
+  memcpy(buf.data(), a.stuff(), binsize);
 }
 
 template<size_t size>
@@ -116,7 +116,7 @@ void unpack(A<size>& a, Buffer const& buf) {
   const auto binsize = sizeof(int) * size;
   assert(buf.size() == binsize);
   auto* astuffptr = reinterpret_cast<uint8_t*>(a.stuff());
-  memcpy(astuffptr, &buf[0], binsize);
+  memcpy(astuffptr, buf.data(), binsize);
 }
 
 //------------------------------------------------------------------------------
@@ -168,8 +168,6 @@ GPU_TEST(managed_ptr, polymorphic_type_test) {
   Buffer abuf, bbuf;
   pack_host(ahost, abuf);
   pack_host(bhost, bbuf);
-  abuf.registerTouch(chai::CPU);
-  bbuf.registerTouch(chai::CPU);
   printf("abuf.size(): %d\n", abuf.size());
   printf("bbuf.size(): %d\n", bbuf.size());
   GPU_EXEC(
@@ -197,8 +195,6 @@ GPU_TEST(managed_ptr, polymorphic_type_test) {
            pack_device(*agpuPtr, abuf);
            pack_device(*bgpuPtr, bbuf);
            );
-  abuf.registerTouch(chai::GPU);
-  bbuf.registerTouch(chai::GPU);
   unpack(ahost, abuf);
   unpack(bhost, bbuf);
   ahost.print_stuff();
