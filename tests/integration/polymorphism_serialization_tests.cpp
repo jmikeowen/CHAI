@@ -41,12 +41,21 @@ inline void gpuErrorCheck(cudaError_t code, const char *file, int line, bool abo
 #define GPU_ERROR_CHECK(code) { gpuErrorCheck((code), __FILE__, __LINE__); }
 
 //------------------------------------------------------------------------------
+// Macro for executing code on host
+//------------------------------------------------------------------------------
+#define HOST_EXEC(code) do {                   \
+  forall(sequential(), 0, 1, [=] (int i) {     \
+    code                                       \
+  });                                          \
+} while (false)
+
+//------------------------------------------------------------------------------
 // Macro for executing code on GPU
 //------------------------------------------------------------------------------
 #define GPU_EXEC(code) do {                    \
   forall(gpu(), 0, 1, [=] __device__ (int i) { \
     code                                       \
-      });                                      \
+  });                                          \
   GPU_ERROR_CHECK( cudaPeekAtLastError() );    \
   GPU_ERROR_CHECK( cudaDeviceSynchronize() );  \
 } while (false)
@@ -54,26 +63,61 @@ inline void gpuErrorCheck(cudaError_t code, const char *file, int line, bool abo
 //------------------------------------------------------------------------------
 // Class definitions we'd like to use on both host and device
 //------------------------------------------------------------------------------
-template<size_t msize>
+template<size_t size>
 class A {
 public:
+
   CHAI_HOST_DEVICE A()                               { printf("A::A()\n"); this->fill(0); }
   CHAI_HOST_DEVICE virtual ~A()                      { printf("A::~A()\n"); }
-  CHAI_HOST_DEVICE void fill(const int x)            { printf("A::fill(%d)\n", x); for (auto i = 0u; i < msize; ++i) mstuff[i] = x; }
-  CHAI_HOST_DEVICE void print_stuff() const          { printf("A::print_stuff:"); for (auto i = 0u; i < msize; ++i) printf(" %d", mstuff[i]); printf("\n"); }
-  CHAI_HOST_DEVICE virtual void func(int x)          { printf("A::func(%d)\n", x); for (auto i = 0u; i < msize; ++i) mstuff[i] += x; }
+  CHAI_HOST_DEVICE void fill(const int x)            { printf("A::fill(%d)\n", x); for (auto i = 0u; i < size; ++i) mstuff[i] = x; }
+  CHAI_HOST_DEVICE void print_stuff() const          { printf("A::print_stuff:"); for (auto i = 0u; i < size; ++i) printf(" %d", mstuff[i]); printf("\n"); }
+  CHAI_HOST_DEVICE virtual void func(int x)          { printf("A::func(%d)\n", x); for (auto i = 0u; i < size; ++i) mstuff[i] += x; }
+  CHAI_HOST_DEVICE int* stuff()                      { printf("A::stuff()\n"); return mstuff; }
+  CHAI_HOST_DEVICE const int* stuff() const          { printf("A::stuff() (const)\n"); return mstuff; }
 protected:
-  int mstuff[msize];
+  int mstuff[size];
 };
 
-template<size_t msize>
-class B: public A<msize> {
+template<size_t size>
+class B: public A<size> {
 public:
-  using A<msize>::mstuff;
-  CHAI_HOST_DEVICE B(): A<msize>()                   { printf("B::B()\n"); }
+  using A<size>::mstuff;
+  CHAI_HOST_DEVICE B(): A<size>()                    { printf("B::B()\n"); }
   CHAI_HOST_DEVICE virtual ~B()                      { printf("B::~B()\n"); }
-  CHAI_HOST_DEVICE virtual void func(int x) override { printf("B::func(%d)\n", x); for (auto i = 0u; i < msize; ++i) mstuff[i] -= x; }
+  CHAI_HOST_DEVICE virtual void func(int x) override { printf("B::func(%d)\n", x); for (auto i = 0u; i < size; ++i) mstuff[i] -= x; }
 };
+
+//------------------------------------------------------------------------------
+// Serialization methods for packing/unpacking objects
+//------------------------------------------------------------------------------
+// Define a type we'll use for buffers of binary data
+using Buffer = chai::ManagedArray<uint8_t>;
+
+template<size_t size>
+CHAI_HOST
+void pack_host(const A<size>& a, Buffer& buf) {
+  const auto binsize = sizeof(int) * size;
+  auto* astuffptr = reinterpret_cast<const uint8_t*>(a.stuff());
+  buf.allocate(binsize);
+  memcpy(&buf[0], astuffptr, binsize);
+}
+
+template<size_t size>
+CHAI_DEVICE
+void pack_device(const A<size>& a, Buffer const& buf) {
+  const auto binsize = sizeof(int) * size;
+  assert(buf.size() == binsize);
+  memcpy(&buf[0], a.stuff(), binsize);
+}
+
+template<size_t size>
+CHAI_HOST_DEVICE
+void unpack(A<size>& a, Buffer const& buf) {
+  const auto binsize = sizeof(int) * size;
+  assert(buf.size() == binsize);
+  auto* astuffptr = reinterpret_cast<uint8_t*>(a.stuff());
+  memcpy(astuffptr, &buf[0], binsize);
+}
 
 //------------------------------------------------------------------------------
 // Make an object on the device
@@ -96,7 +140,7 @@ GPU_TEST(managed_ptr, polymorphic_type_test) {
   printf("\n--------------------------------------------------------------------------------\n");
   printf("Allocating objects on host\n");
   A<20u> ahost;
-  B<20u> bhost;
+  B<10u> bhost;
   printf("Host initial object states:\n");
   ahost.print_stuff();
   bhost.print_stuff();
@@ -104,12 +148,12 @@ GPU_TEST(managed_ptr, polymorphic_type_test) {
   printf("\n--------------------------------------------------------------------------------\n");
   printf("Allocate objects on the device\n");
   A<20u>* agpuPtr = constructOnDevice<A<20u>>();
-  B<20u>* bgpuPtr = constructOnDevice<B<20u>>();
+  B<10u>* bgpuPtr = constructOnDevice<B<10u>>();
   printf("GPU initial object states:\n");
   GPU_EXEC( 
            agpuPtr->print_stuff();
            bgpuPtr->print_stuff();
-          );
+            );
 
   printf("\n--------------------------------------------------------------------------------\n");
   printf("Alter the objects on host\n");
@@ -120,7 +164,48 @@ GPU_TEST(managed_ptr, polymorphic_type_test) {
   bhost.print_stuff();
 
   printf("\n--------------------------------------------------------------------------------\n");
-  printf("Free memory.  This is the sort of thing I don't wnat to have to worry about...\n");
+  printf("Move object states from host -> GPU\n");
+  Buffer abuf, bbuf;
+  pack_host(ahost, abuf);
+  pack_host(bhost, bbuf);
+  abuf.registerTouch(chai::CPU);
+  bbuf.registerTouch(chai::CPU);
+  printf("abuf.size(): %d\n", abuf.size());
+  printf("bbuf.size(): %d\n", bbuf.size());
+  GPU_EXEC(
+           unpack(*agpuPtr, abuf);
+           unpack(*bgpuPtr, bbuf);
+           agpuPtr->print_stuff();
+           bgpuPtr->print_stuff();
+           );
+
+  printf("\n--------------------------------------------------------------------------------\n");
+  printf("Alter the objects on device\n");
+  GPU_EXEC(
+           agpuPtr->func(100);
+           bgpuPtr->func(50);
+           );
+  printf("After modification on device:\n");
+  GPU_EXEC(
+           agpuPtr->print_stuff();
+           bgpuPtr->print_stuff();
+           );
+
+  printf("\n--------------------------------------------------------------------------------\n");
+  printf("Move object states from GPU -> host\n");
+  GPU_EXEC(
+           pack_device(*agpuPtr, abuf);
+           pack_device(*bgpuPtr, bbuf);
+           );
+  abuf.registerTouch(chai::GPU);
+  bbuf.registerTouch(chai::GPU);
+  unpack(ahost, abuf);
+  unpack(bhost, bbuf);
+  ahost.print_stuff();
+  bhost.print_stuff();
+
+  printf("\n--------------------------------------------------------------------------------\n");
+  printf("Free memory.  This is the sort of thing I don't want to have to worry about...\n");
   GPU_EXEC(
            agpuPtr->~A();
            bgpuPtr->~B();
